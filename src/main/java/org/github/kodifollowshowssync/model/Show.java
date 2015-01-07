@@ -3,18 +3,17 @@ package org.github.kodifollowshowssync.model;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.sql.Connection;
-import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.text.SimpleDateFormat;
 import java.util.List;
+import java.util.Map;
 
-import org.github.kodifollowshowssync.followshows.FollowShowsConnector;
+import org.github.kodifollowshowssync.followshows.FSEpisode;
 import org.github.kodifollowshowssync.followshows.FSShow;
+import org.github.kodifollowshowssync.followshows.FollowShowsConnector;
 
-import com.google.api.client.http.HttpRequestFactory;
 import com.google.api.client.http.HttpResponseException;
 
 public class Show {
@@ -35,17 +34,22 @@ public class Show {
 		return name;
 	}
 	
-	public void identifyAndSetWatched(FollowShowsConnector client) throws MalformedURLException, IOException {
+	public void identifyAndSetWatched(FollowShowsConnector client, Map<String, Identity> knownIdentities) throws MalformedURLException, IOException {
 		try {
-			List<FSShow> possibleMatches=client.searchShows(name);
-			if(!possibleMatches.isEmpty()) {			
-				this.setIdentity(possibleMatches.get(0));
-				
-				if(this.isInFollowShow()) {
-					if(!followShow.isFollowed()) {
-						client.followShow(followShow);
-						System.out.println("FOLLOWED\t"+name);
-					}
+			Identity identity=knownIdentities.get(name);
+			if(identity!=null)
+				followShow=identity.getFSShow();
+			else {
+				List<FSShow> possibleMatches=client.searchShows(name);
+				if(!possibleMatches.isEmpty()) {			
+					this.tryIdentity(possibleMatches.get(0));
+				}
+			}
+			
+			if(this.isInFollowShow()) {
+				if(!followShow.isFollowed()) {
+					client.followShow(followShow);
+					System.out.println("FOLLOWED\t"+name);
 				}
 			}
 		} catch(HttpResponseException e) {
@@ -53,7 +57,7 @@ public class Show {
 		}
 	}
 
-	private void setIdentity(FSShow showResult) {
+	private void tryIdentity(FSShow showResult) {
 		if(showResult.getName().replaceAll("[^\\p{Alpha}]", "").replaceAll("US$", "").equals(name.replaceAll("[^\\p{Alpha}]", "")))
 			this.followShow=showResult;
 		else
@@ -65,7 +69,7 @@ public class Show {
 	}
 
 	public void syncWatchedEpisodes(Connection c, FollowShowsConnector client) throws SQLException, MalformedURLException, IOException {
-		try(ResultSet episode=c.createStatement().executeQuery("SELECT c12 as season, c13 as episode, episode.idFile as fileId, files.playCount as playCount FROM episode LEFT JOIN files ON files.idFile=episode.idFile WHERE idShow="+kodiId)) {
+		try(ResultSet episode=c.createStatement().executeQuery("SELECT c12 as season, c13 as episode, episode.idFile as fileId, files.playCount as playCount FROM episode LEFT JOIN files ON files.idFile=episode.idFile WHERE idShow="+kodiId)) {			
 			while(episode.next()) {
 				int season=episode.getInt("season");
 				if(season==0)
@@ -73,7 +77,13 @@ public class Show {
 				int episodeNumber=episode.getInt("episode");
 				int fileId=episode.getInt("fileId");
 				boolean kodiWatched=episode.getInt("playCount")>0;
-				boolean followShowWatched=client.isWatched(followShow,season,episodeNumber);
+				
+				if(!followShow.isSeasonLoaded(season))
+					followShow.setSeason(season, client.getSeason(followShow, season));
+				
+				FSEpisode fsEp=followShow.getSeason(season).get(episodeNumber);
+				
+				boolean followShowWatched=fsEp.isWatched();
 				
 				if(kodiWatched && !followShowWatched) {
 					client.markWatched(followShow,season,episodeNumber);
@@ -90,5 +100,9 @@ public class Show {
 				}
 			}
 		}
+	}
+
+	public FSShow getFollowShow() {
+		return followShow;
 	}
 }

@@ -1,7 +1,6 @@
 package org.github.kodifollowshowssync.followshows;
 
 import java.io.IOException;
-import java.sql.ResultSet;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -73,6 +72,15 @@ public class FollowShowsConnector {
 
 	public void markWatched(FSShow show, int season, int episode) throws IOException {
 		this.request("https://api.followshows.com/episodes/markAsWatched", "show", show.getShortName(), "seasonNumber", season, "episodeNumber", episode);
+	}
+
+	public HashMap<Integer, FSEpisode> getSeason(FSShow followShow, int season) throws IOException {
+		FSEpisode[] episodes=this.request("https://api.followshows.com/shows/"+followShow.getShortName()+"/seasons/"+season).parseAs(FSEpisode[].class);
+		
+		HashMap<Integer, FSEpisode> res=new HashMap<>();
+		for(FSEpisode ep:episodes)
+			res.put(ep.getNumberInSeason(), ep);
+		return res;
 	}
 	
 }
